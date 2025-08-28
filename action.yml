@@ -47,6 +47,11 @@ inputs:
     required: false
     default: 'latest'
 
+  args:
+    description: 'Custom arguments to pass to editorlint (e.g. "--fix --output json src/"). When provided, overrides structured inputs except path.'
+    required: false
+    default: ''
+
   path:
     description: 'Path to file or directory to validate'
     required: false
@@ -106,169 +111,33 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Download editorlint binary
+    - name: Install editorlint
       shell: bash
-      run: |
-        # Determine OS and architecture
-        case "$RUNNER_OS" in
-          "Linux") GOOS="linux" ;;
-          "macOS") GOOS="darwin" ;;
-          "Windows") GOOS="windows" ;;
-          *) echo "Unsupported OS: $RUNNER_OS"; exit 1 ;;
-        esac
-
-        case "$RUNNER_ARCH" in
-          "X64") GOARCH="amd64" ;;
-          "ARM64") GOARCH="arm64" ;;
-          *) echo "Unsupported architecture: $RUNNER_ARCH"; exit 1 ;;
-        esac
-
-        # Get version
-        if [ "${{ inputs.version }}" = "latest" ]; then
-          echo "Fetching latest release version..."
-          VERSION=$(curl -s https://api.github.com/repos/editorlint/editorlint/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-          if [ -z "$VERSION" ]; then
-            echo "Failed to fetch latest version"
-            exit 1
-          fi
-          echo "Latest version: $VERSION"
-        else
-          VERSION="${{ inputs.version }}"
-          echo "Using specified version: $VERSION"
-        fi
-
-        # Set binary and archive names
-        if [ "$GOOS" = "windows" ]; then
-          BINARY_NAME="editorlint.exe"
-          ARCHIVE_NAME="editorlint_v${VERSION}_${GOOS}_${GOARCH}.zip"
-        else
-          BINARY_NAME="editorlint"
-          ARCHIVE_NAME="editorlint_v${VERSION}_${GOOS}_${GOARCH}.tar.gz"
-        fi
-
-        DOWNLOAD_URL="https://github.com/editorlint/editorlint/releases/download/${VERSION}/${ARCHIVE_NAME}"
-        
-        echo "Downloading $ARCHIVE_NAME..."
-        if ! curl -L -f -o "$ARCHIVE_NAME" "$DOWNLOAD_URL"; then
-          echo "Failed to download $DOWNLOAD_URL"
-          exit 1
-        fi
-
-        # Extract based on file type
-        if [ "$GOOS" = "windows" ]; then
-          unzip -o "$ARCHIVE_NAME" "$BINARY_NAME" -d "${{ github.action_path }}"
-        else
-          tar -xzf "$ARCHIVE_NAME" -C "${{ github.action_path }}" "$BINARY_NAME"
-          chmod +x "${{ github.action_path }}/$BINARY_NAME"
-        fi
-        
-        echo "Successfully downloaded and extracted $BINARY_NAME"
+      run: ${{ github.action_path }}/install.sh
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
 
     - name: Run editorlint
       id: lint  
       shell: bash
-      run: |
-        cd "${{ github.workspace }}"
-
-        # Build arguments array
-        ARGS=("${{ inputs.path }}")
-
-        if [ "${{ inputs.config-file || inputs.config }}" != "" ]; then
-          ARGS+=("--config" "${{ inputs.config-file || inputs.config }}")
-        fi
-
-        if [ "${{ inputs.recurse }}" = "true" ]; then
-          ARGS+=("--recurse")
-        fi
-
-        if [ "${{ inputs.fix }}" = "true" ]; then
-          ARGS+=("--fix")  
-        fi
-
-        if [ "${{ inputs.output-format || inputs.reporter }}" != "default" ]; then
-          ARGS+=("--output" "${{ inputs.output-format || inputs.reporter }}")
-        fi
-
-        if [ "${{ inputs.exclude }}" != "" ]; then
-          IFS=',' read -ra PATTERNS <<< "${{ inputs.exclude }}"
-          for pattern in "${PATTERNS[@]}"; do
-            trimmed_pattern=$(echo "$pattern" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            ARGS+=("--exclude" "$trimmed_pattern")
-          done
-        fi
-
-        # Determine binary path
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          BINARY_PATH="${{ github.action_path }}/editorlint.exe"
-        else
-          BINARY_PATH="${{ github.action_path }}/editorlint"
-        fi
-
-        # Run editorlint
-        set +e
-        OUTPUT=$("$BINARY_PATH" "${ARGS[@]}" 2>&1)
-        EXIT_CODE=$?
-        set -e
-
-        echo "$OUTPUT"
-
-        # Parse results
-        VIOLATIONS_FOUND="false"
-        FILES_PROCESSED="0"
-        FILES_FIXED="0"
-
-        if [ $EXIT_CODE -ne 0 ] && [ "${{ inputs.fix }}" = "false" ]; then
-          VIOLATIONS_FOUND="true"
-        fi
-
-        if echo "$OUTPUT" | grep -q "files processed"; then
-          FILES_PROCESSED=$(echo "$OUTPUT" | grep "files processed" | sed -n 's/.*\([0-9]\+\) files processed.*/\1/p' || echo "0")
-        fi
-
-        if echo "$OUTPUT" | grep -q "files fixed"; then
-          FILES_FIXED=$(echo "$OUTPUT" | grep "files fixed" | sed -n 's/.*\([0-9]\+\) files fixed.*/\1/p' || echo "0")
-          if [ "$FILES_FIXED" != "0" ]; then
-            VIOLATIONS_FOUND="true"
-          fi
-        fi
-
-        # Set outputs
-        echo "violations-found=$VIOLATIONS_FOUND" >> $GITHUB_OUTPUT
-        echo "files-processed=$FILES_PROCESSED" >> $GITHUB_OUTPUT  
-        echo "files-fixed=$FILES_FIXED" >> $GITHUB_OUTPUT
-
-        # Handle auto-commit
-        if [ "${{ inputs.auto-commit }}" = "true" ] && [ "${{ inputs.fix }}" = "true" ] && [ "$FILES_FIXED" != "0" ]; then
-          echo "Auto-committing fixes..."
-          git config --local user.name "${{ inputs.git-user-name }}"
-          git config --local user.email "${{ inputs.git-user-email }}"
-
-          if git diff --exit-code > /dev/null 2>&1; then
-            echo "No changes to commit after fixes"
-          else
-            git add .
-            git commit -m "${{ inputs.commit-message }}"
-            git push
-          fi
-        fi
-
-        # Save outputs for PR comment step
-        echo "VIOLATIONS_FOUND=$VIOLATIONS_FOUND" >> $GITHUB_ENV
-        echo "FILES_PROCESSED=$FILES_PROCESSED" >> $GITHUB_ENV
-        echo "FILES_FIXED=$FILES_FIXED" >> $GITHUB_ENV
-        
-        # Save the raw output for PR comments
-        {
-          echo "EDITORLINT_OUTPUT<<EOF"
-          echo "$OUTPUT"
-          echo "EOF"
-        } >> $GITHUB_ENV
-
-        # Fail if violations found and fail-on-violations is enabled
-        if [ "${{ inputs.fail-on-violations }}" = "true" ] && [ "$VIOLATIONS_FOUND" = "true" ] && [ "${{ inputs.fix }}" = "false" ]; then
-          echo "Violations found and fail-on-violations is enabled"
-          exit 1
-        fi
+      run: ${{ github.action_path }}/run.sh
+      env:
+        INPUT_ARGS: ${{ inputs.args }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_RECURSE: ${{ inputs.recurse }}
+        INPUT_FIX: ${{ inputs.fix }}
+        INPUT_REPORTER: ${{ inputs.reporter }}
+        INPUT_OUTPUT_FORMAT: ${{ inputs.output-format }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+        INPUT_FAIL_ON_VIOLATIONS: ${{ inputs.fail-on-violations }}
+        INPUT_AUTO_COMMIT: ${{ inputs.auto-commit }}
+        INPUT_COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        INPUT_GIT_USER_NAME: ${{ inputs.git-user-name }}
+        INPUT_GIT_USER_EMAIL: ${{ inputs.git-user-email }}
 
     - name: Create or Update PR Comment
       if: inputs.pr-comment == 'true' && inputs.token != '' && github.event_name == 'pull_request'
