@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
 ```
 
 ### With Auto-fix
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           fix: true
           auto-commit: true
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           args: "--fix --output json --exclude '*.min.*' --config .editorconfig.strict"
 ```
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pr-comment: true
@@ -167,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           path: .
           recurse: true
@@ -187,7 +187,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           fix: true
           auto-commit: true
@@ -207,7 +207,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pr-comment: true
@@ -228,7 +228,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           config: .editorconfig.strict
           exclude: "*.generated.*, node_modules/**, dist/**"
@@ -252,7 +252,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         with:
           fix: false
           reporter: tabular
@@ -270,7 +270,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: editorlint/editorlint-action@v1
+      - uses: editorlint/action@v1
         id: lint
         with:
           fix: ${{ github.event_name == 'push' }}  # Only fix on push, not PR
